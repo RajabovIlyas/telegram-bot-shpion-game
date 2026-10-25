@@ -28,7 +28,7 @@ export function spyCount(n) {
 
 export const RULES = `🕵️ <b>Правила игры «Шпион»</b>
 
-• Всем игрокам, кроме шпионов, бот присылает в личку загаданное слово. Шпионы знают только категорию.
+• Всем игрокам, кроме шпионов, бот присылает в личку загаданное слово. Шпионы не знают ни слова, ни его категории.
 • 3–6 игроков — 1 шпион, 7–10 — 2, 11–14 — 3. Шпионы не знают друг друга.
 • <b>Раунд</b>: каждый пишет в чат <b>одно слово</b>, связанное с загаданным (${WORDS_SEC} сек). Само загаданное слово писать нельзя. Лишние сообщения удаляются.
 • <b>Обсуждение</b> — ${DISCUSS_SEC} сек, затем <b>голосование</b> — ${VOTE_SEC} сек.
@@ -103,7 +103,7 @@ function setupKeyboard(game) {
 export async function toggleCategory(game, key) {
   const selected = new Set(game.categories);
   if (key === '*') {
-    const all = Object.keys(CATEGORIES);
+    const all = Object.keys(CATEGORIES).filter((k) => !CATEGORIES[k].adult);
     const allOn = all.every((k) => selected.has(k));
     all.forEach((k) => (allOn ? selected.delete(k) : selected.add(k)));
   } else if (CATEGORIES[key]) {
@@ -197,7 +197,7 @@ export async function startGame(game) {
 export function roleText(game, p) {
   const where = game.chatTitle ? ` в «${esc(game.chatTitle)}»` : '';
   return p.isSpy
-    ? `🕵️ Игра${where}: ты — <b>ШПИОН</b>!\n\nКатегория: ${categoryTitle(game)}\nСлово тебе неизвестно. Притворяйся своим и попробуй его угадать.`
+    ? `🕵️ Игра${where}: ты — <b>ШПИОН</b>!\n\nСлово и его категория тебе неизвестны. Притворяйся своим и попробуй его угадать.`
     : `🎲 Игра${where}: ты — мирный житель.\n\nКатегория: ${categoryTitle(game)}\nСлово: <b>${esc(game.word)}</b>\n\nНайди шпиона, но не выдавай слово слишком явно.`;
 }
 
@@ -331,8 +331,7 @@ async function resolveVotes(game) {
     await tryEdit(game.chatId, voteMessageId, closedText);
     await send(game.chatId, `🕵️ ${label} — <b>шпион</b>!\n\nУ шпиона ${GUESS_SEC} сек, чтобы угадать загаданное слово `
       + '(пишет боту в личку). Угадает — шпионы победят.');
-    const dm = await trySend(out.userId, `😱 Тебя раскрыли! Напиши мне загаданное слово — у тебя ${GUESS_SEC} сек.\n`
-      + `Категория: ${categoryTitle(game)}`);
+    const dm = await trySend(out.userId, `😱 Тебя раскрыли! Напиши мне загаданное слово — у тебя ${GUESS_SEC} сек.`);
     if (!dm) await send(game.chatId, `⚠️ Не смог написать ${label} в личку — откройте чат с ботом и напишите слово.`);
     return;
   }
