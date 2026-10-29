@@ -195,10 +195,11 @@ export async function startGame(game) {
 }
 
 export function roleText(game, p) {
-  const where = game.chatTitle ? ` в «${esc(game.chatTitle)}»` : '';
+  // The role (and the word) lead the first line so they show in the notification preview.
+  const where = game.chatTitle ? `Игра в «${esc(game.chatTitle)}»\n\n` : '';
   return p.isSpy
-    ? `🕵️ Игра${where}: ты — <b>ШПИОН</b>!\n\nСлово и его категория тебе неизвестны. Притворяйся своим и попробуй его угадать.`
-    : `🎲 Игра${where}: ты — мирный житель.\n\nКатегория: ${categoryTitle(game)}\nСлово: <b>${esc(game.word)}</b>\n\nНайди шпиона, но не выдавай слово слишком явно.`;
+    ? `🕵️ <b>Ты — ШПИОН!</b>\n\n${where}Слово и его категория тебе неизвестны. Притворяйся своим и попробуй его угадать.`
+    : `🎲 <b>Ты мирный. Слово: ${esc(game.word)}</b>\n\n${where}Категория: ${categoryTitle(game)}\n\nНайди шпиона, но не выдавай слово слишком явно.`;
 }
 
 // ── rounds ─────────────────────────────────────────────────────────────────
