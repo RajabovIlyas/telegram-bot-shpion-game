@@ -3,7 +3,6 @@
 import { db } from 'sdk';
 import { sql } from 'sdk/db';
 import { users } from '../schema.js';
-import { now } from './util.js';
 
 // Upsert the sender's profile and bump their request counter. Never throws:
 // a failed write must not break handling of the update itself.
@@ -15,7 +14,7 @@ export async function recordUser(from) {
     lastName:     from.last_name ?? null,
     languageCode: from.language_code ?? null,
     isPremium:    !!from.is_premium,
-    lastSeen:     now(),
+    lastSeen:     sql`(unixepoch())`,
   };
   try {
     await db.insert(users).values({ id: from.id, ...profile, requests: 1 })

@@ -1,6 +1,12 @@
-import { api, BotApiError } from 'sdk';
+import { api, db, BotApiError } from 'sdk';
+import { sql } from 'sdk/db';
 
-export const now = () => Math.floor(Date.now() / 1000);
+// Unix seconds by the database's clock. Date.now() differs between the platform's
+// workers by seconds to over a minute, so phase deadlines set by one update and
+// checked by another must all be measured on this one clock.
+export async function now() {
+  return (await db.get(sql`select unixepoch() as t`)).t;
+}
 
 export function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

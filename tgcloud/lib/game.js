@@ -69,7 +69,7 @@ const categoryTitle = (game) => CATEGORIES[game.category]?.title ?? game.categor
 export async function createGame(chat, host, warning) {
   const old = await getActiveGame(chat.id);
   if (old) {
-    const stale = !IN_PLAY.includes(old.status) && now() - old.createdAt > STALE_LOBBY_SEC;
+    const stale = !IN_PLAY.includes(old.status) && await now() - old.createdAt > STALE_LOBBY_SEC;
     if (!stale) return null;
     await transition(old, { status: 'finished', phaseEndsAt: null });
     if (old.panelMessageId) await tryEdit(old.chatId, old.panelMessageId, '⌛ Набор в игру истёк.');
@@ -174,7 +174,7 @@ export async function startGame(game) {
   const category = game.categories[randomInt(game.categories.length)];
   const pool = CATEGORIES[category].words;
   const word = pool[randomInt(pool.length)];
-  if (!await transition(game, { status: 'words', round: 1, category, word, phaseEndsAt: now() + WORDS_SEC })) return null;
+  if (!await transition(game, { status: 'words', round: 1, category, word, phaseEndsAt: await now() + WORDS_SEC })) return null;
 
   const spyIds = shuffle(list).slice(0, spyCount(list.length)).map((p) => p.id);
   await db.update(players).set({ isSpy: true }).where(inArray(players.id, spyIds));
@@ -203,8 +203,8 @@ export function roleText(game, p) {
 
 // ── rounds ─────────────────────────────────────────────────────────────────
 
-const nextRoundPatch = (game) => ({
-  status: 'words', round: game.round + 1, phaseEndsAt: now() + WORDS_SEC, guessUserId: null, voteMessageId: null,
+const nextRoundPatch = async (game) => ({
+  status: 'words', round: game.round + 1, phaseEndsAt: await now() + WORDS_SEC, guessUserId: null, voteMessageId: null,
 });
 
 async function announceRound(game, prefix) {
@@ -241,7 +241,7 @@ export async function onGroupMessage(game, message) {
 }
 
 async function toDiscussion(game) {
-  if (!await transition(game, { status: 'discussion', phaseEndsAt: now() + DISCUSS_SEC })) return;
+  if (!await transition(game, { status: 'discussion', phaseEndsAt: await now() + DISCUSS_SEC })) return;
   const alive = (await getPlayers(game.id)).filter((p) => p.alive);
   const lines = alive.map((p) =>
     `• ${esc(p.name)} — ${p.wordRound === game.round ? `<b>${esc(p.word)}</b>` : '<i>нет слова</i>'}`).join('\n');
@@ -252,7 +252,7 @@ async function toDiscussion(game) {
 // ── voting ─────────────────────────────────────────────────────────────────
 
 async function toVoting(game) {
-  if (!await transition(game, { status: 'voting', phaseEndsAt: now() + VOTE_SEC })) return;
+  if (!await transition(game, { status: 'voting', phaseEndsAt: await now() + VOTE_SEC })) return;
   const alive = (await getPlayers(game.id)).filter((p) => p.alive);
   const msg = await send(game.chatId, voteText(game, alive, false), { reply_markup: { inline_keyboard: voteKeyboard(game, alive) } });
   await db.update(games).set({ voteMessageId: msg.message_id }).where(eq(games.id, game.id));
@@ -318,7 +318,7 @@ async function resolveVotes(game) {
   const closedText = voteText(game, alive, true);
 
   if (!counts.size || leaders.length > 1) {
-    if (!await transition(game, nextRoundPatch(game))) return;
+    if (!await transition(game, await nextRoundPatch(game))) return;
     await tryEdit(game.chatId, voteMessageId, closedText);
     await announceRound(game, counts.size ? '⚖️ Голоса разделились — никто не выбывает.' : '🤷 Никто не проголосовал — никто не выбывает.');
     return;
@@ -327,7 +327,7 @@ async function resolveVotes(game) {
   const out = alive.find((p) => p.userId === leaders[0]);
   const label = mention(out.userId, out.name);
   if (out.isSpy) {
-    if (!await transition(game, { status: 'guess', guessUserId: out.userId, phaseEndsAt: now() + GUESS_SEC })) return;
+    if (!await transition(game, { status: 'guess', guessUserId: out.userId, phaseEndsAt: await now() + GUESS_SEC })) return;
     await tryEdit(game.chatId, voteMessageId, closedText);
     await send(game.chatId, `🕵️ ${label} — <b>шпион</b>!\n\nУ шпиона ${GUESS_SEC} сек, чтобы угадать загаданное слово `
       + '(пишет боту в личку). Угадает — шпионы победят.');
@@ -367,7 +367,7 @@ async function afterElimination(game, all, out, headline) {
     : spies >= civilians ? '🕵️ Шпионов не меньше, чем мирных — <b>победа шпионов!</b>'
     : null;
 
-  const ok = await transition(game, result ? { status: 'finished', phaseEndsAt: null } : nextRoundPatch(game));
+  const ok = await transition(game, result ? { status: 'finished', phaseEndsAt: null } : await nextRoundPatch(game));
   if (!ok) return false;
   await db.update(players).set({ alive: false }).where(eq(players.id, out.id));
   if (result) await announceEnd(game, `${headline}\n\n${result}`);
@@ -385,7 +385,7 @@ async function announceEnd(game, headline) {
 // ── deadlines ──────────────────────────────────────────────────────────────
 
 export async function tick(game) {
-  if (!game?.phaseEndsAt || now() < game.phaseEndsAt) return;
+  if (!game?.phaseEndsAt || await now() < game.phaseEndsAt) return;
   switch (game.status) {
     case 'words': return toDiscussion(game);
     case 'discussion': return toVoting(game);
