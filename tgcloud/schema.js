@@ -11,7 +11,8 @@ export const games = table('games', {
   categories:     json('categories').default([]),
   category:       text('category'),
   word:           text('word'),
-  round:          integer('round').notNull().default(0),
+  spies:          integer('spies'),                  // chosen by the host; null = auto by player count
+  round:         integer('round').notNull().default(0),
   phaseEndsAt:    integer('phase_ends_at'),          // unix seconds; null = no deadline
   panelMessageId: integer('panel_message_id'),       // setup/lobby message
   voteMessageId:  integer('vote_message_id'),

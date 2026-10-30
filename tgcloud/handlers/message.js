@@ -3,12 +3,13 @@
 
 import { api } from 'sdk';
 import {
-  RULES, IN_PLAY, getGame, getActiveGame, createGame, cancelGame, joinGame, onGroupMessage,
+  RULES, IN_PLAY, MIN_PLAYERS, getGame, getActiveGame, createGame, cancelGame, joinGame, onGroupMessage,
   roleText, tick, resolveGuess, findGuessingGame, findPlayingGames, getPlayers,
 } from '../lib/game.js';
 import { send, tryDelete, displayName, getMe, isChatAdmin, esc } from '../lib/util.js';
 import { isAdmin, sendUserList } from '../lib/admin.js';
 import { recordUser } from '../lib/users.js';
+import { ensureCommands } from '../lib/commands.js';
 
 // Telegram service messages (joins, pins, title changes…) aren't something a player wrote.
 const SERVICE_KEYS = [
@@ -29,13 +30,15 @@ async function parseCommand(text) {
 
 export default async function (message) {
   await recordUser(message.from);
+  await ensureCommands();
   if (message.chat.type === 'private') return onPrivate(message);
   if (message.chat.type === 'group' || message.chat.type === 'supergroup') return onGroup(message);
 }
 
 async function onGroup(message) {
-  if (SERVICE_KEYS.some((k) => k in message)) return;
   const chatId = message.chat.id;
+  if (await isBotAdded(message)) return send(chatId, await groupHint(chatId));
+  if (SERVICE_KEYS.some((k) => k in message)) return;
   const cmd = await parseCommand(message.text);
 
   const game = await getActiveGame(chatId);
@@ -59,6 +62,27 @@ async function onGroup(message) {
     return createGame(message.chat, message.from, await rightsWarning(chatId));
   }
   if (cmd?.name === 'rules' || cmd?.name === 'help') return send(chatId, RULES);
+  // Adding the bot via the "add to group" button posts "/start" into the group.
+  if (cmd?.name === 'start') return send(chatId, await groupHint(chatId));
+}
+
+// The bot itself was just added to this group (or created the group together with it).
+async function isBotAdded(message) {
+  if (message.group_chat_created || message.supergroup_chat_created) return true;
+  const me = await getMe();
+  return message.new_chat_members?.some((u) => u.id === me.id) ?? false;
+}
+
+async function groupHint(chatId) {
+  const warning = await rightsWarning(chatId);
+  return `🕵️ Привет! Я веду игру «Шпион».\n\nЧтобы начать игру, напишите /spy — выберите категории, соберите игроков (от ${MIN_PLAYERS}) и жмите «Начать игру». Правила — /rules.`
+    + (warning ? `\n\n⚠️ ${warning}` : '');
+}
+
+// Deep link that opens "add to group" with the admin rights the game needs pre-ticked.
+async function addToGroupKeyboard() {
+  const me = await getMe();
+  return { inline_keyboard: [[{ text: '➕ Добавить в группу', url: `https://t.me/${me.username}?startgroup=spy&admin=delete_messages` }]] };
 }
 
 async function rightsWarning(chatId) {
@@ -82,7 +106,8 @@ async function onPrivate(message) {
         ? `✅ ${status}${game.chatTitle ? ` («${esc(game.chatTitle)}»)` : ''} Роль придёт сюда, когда игра начнётся.`
         : status);
     }
-    return send(user.id, `Привет! Добавь меня в группу, сделай админом и напиши там /spy.\n\n${RULES}`);
+    return send(user.id, `Привет! Добавь меня в группу, сделай админом и напиши там /spy.\n\n${RULES}`,
+      { reply_markup: await addToGroupKeyboard() });
   }
 
   if (cmd?.name === 'role') {
@@ -109,5 +134,6 @@ async function onPrivate(message) {
     return;
   }
 
-  return send(user.id, 'Чтобы начать игру, добавь меня в группу и напиши там /spy. Правила — /rules.');
+  return send(user.id, 'Чтобы начать игру, добавь меня в группу и напиши там /spy. Правила — /rules.',
+    { reply_markup: await addToGroupKeyboard() });
 }

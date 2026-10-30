@@ -3,7 +3,7 @@
 
 import { api } from 'sdk';
 import {
-  getGame, tick, toggleCategory, openLobby, joinGame, leaveGame, startGame, cancelGame, castVote,
+  getGame, tick, toggleCategory, openLobby, joinGame, leaveGame, setSpies, startGame, cancelGame, castVote,
 } from '../lib/game.js';
 import { displayName, getMe, isChatAdmin, canMessage } from '../lib/util.js';
 import { recordUser } from '../lib/users.js';
@@ -48,6 +48,13 @@ export default async function (cq) {
 
     case 'leave':
       return answer(await leaveGame(game, cq.from.id));
+
+    case 'spies': {
+      if (game.status !== 'lobby') return answer();
+      if (!isHost) return answer(hostOnly);
+      const n = Number(arg);
+      return answer((await setSpies(game, n === 0 ? null : n)) ?? undefined);
+    }
 
     case 'start': {
       if (game.status !== 'lobby') return answer();

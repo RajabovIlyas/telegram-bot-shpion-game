@@ -22,14 +22,20 @@ const STALE_LOBBY_SEC = 60 * 60;
 
 export const IN_PLAY = ['words', 'discussion', 'voting', 'guess'];
 
+export const SPY_CHOICES = [1, 2, 3, 4];
+
 export function spyCount(n) {
   return n <= 6 ? 1 : n <= 10 ? 2 : 3;
 }
 
+const gameSpyCount = (game, n) => game.spies ?? spyCount(n);
+// Spies must start outnumbered, otherwise they win before the first round.
+const minPlayersFor = (spies) => Math.max(MIN_PLAYERS, 2 * spies + 1);
+
 export const RULES = `🕵️ <b>Правила игры «Шпион»</b>
 
 • Всем игрокам, кроме шпионов, бот присылает в личку загаданное слово. Шпионы не знают ни слова, ни его категории.
-• 3–6 игроков — 1 шпион, 7–10 — 2, 11–14 — 3. Шпионы не знают друг друга.
+• Число шпионов выбирает ведущий. По умолчанию (авто): 3–6 игроков — 1 шпион, 7–10 — 2, 11–14 — 3. Шпионы не знают друг друга.
 • <b>Раунд</b>: каждый пишет в чат <b>одно слово</b>, связанное с загаданным (${WORDS_SEC} сек). Само загаданное слово писать нельзя. Лишние сообщения удаляются.
 • <b>Обсуждение</b> — ${DISCUSS_SEC} сек, затем <b>голосование</b> — ${VOTE_SEC} сек.
 • Выбывает игрок с наибольшим числом голосов. При ничьей никто не выбывает.
@@ -123,12 +129,22 @@ export async function refreshLobby(game) {
   const list = await getPlayers(game.id);
   const cats = game.categories.map((k) => CATEGORIES[k]?.title).filter(Boolean).join(', ');
   const lines = list.map((p, i) => `${i + 1}. ${esc(p.name)}`).join('\n') || '<i>пока никого</i>';
-  const spies = list.length >= MIN_PLAYERS ? `Шпионов будет: <b>${spyCount(list.length)}</b>.` : `Нужно минимум ${MIN_PLAYERS} игрока.`;
+  const count = gameSpyCount(game, list.length);
+  const need = minPlayersFor(count);
+  const mode = game.spies == null ? ' (авто)' : '';
+  const spies = list.length >= need ? `Шпионов будет: <b>${count}</b>${mode}.`
+    : game.spies == null ? `Нужно минимум ${MIN_PLAYERS} игрока.`
+    : `Шпионов: <b>${count}</b> — для этого нужно минимум ${need} игроков.`;
   const text = `🕵️ <b>Игра «Шпион» — набор игроков</b>\n\nКатегории: ${cats}\n\n`
     + `<b>Игроки (${list.length}/${MAX_PLAYERS}):</b>\n${lines}\n\n${spies}\n\n`
+    + 'Число шпионов ведущий выбирает кнопками 🕵️ ниже.\n'
     + 'Роль придёт в личку от бота — если бот попросит, откройте с ним чат и нажмите «Старт».';
+  const spyButtons = [null, ...SPY_CHOICES].map((n) => ({
+    text: `${(game.spies ?? null) === n ? '✅ ' : ''}${n ?? '🕵️ Авто'}`, callback_data: `spies:${game.id}:${n ?? 0}`,
+  }));
   await tryEdit(game.chatId, game.panelMessageId, text, [
     [{ text: '🙋 Участвую', callback_data: `join:${game.id}` }, { text: '🚪 Выйти', callback_data: `leave:${game.id}` }],
+    spyButtons,
     [{ text: '▶️ Начать игру', callback_data: `start:${game.id}` }],
     [{ text: '✖️ Отмена', callback_data: `cancel:${game.id}` }],
   ]);
@@ -144,6 +160,17 @@ export async function joinGame(game, user, name) {
   if (!rows.length) return 'Ты уже в игре';
   await refreshLobby(game);
   return 'Ты в игре!';
+}
+
+// n = null means auto (by player count).
+export async function setSpies(game, n) {
+  if (game.status !== 'lobby') return 'Набор в эту игру закрыт';
+  if (n != null && !SPY_CHOICES.includes(n)) return null;
+  if ((game.spies ?? null) === n) return null;
+  game.spies = n;
+  await db.update(games).set({ spies: n }).where(and(eq(games.id, game.id), eq(games.status, 'lobby')));
+  await refreshLobby(game);
+  return n == null ? 'Число шпионов: авто' : `Шпионов: ${n}`;
 }
 
 export async function leaveGame(game, userId) {
@@ -171,12 +198,16 @@ export async function cancelGame(game, headline) {
 export async function startGame(game) {
   const list = await getPlayers(game.id);
   if (list.length < MIN_PLAYERS) return `Нужно минимум ${MIN_PLAYERS} игрока`;
+  const spyTotal = gameSpyCount(game, list.length);
+  if (list.length < minPlayersFor(spyTotal)) {
+    return `Нужно минимум ${minPlayersFor(spyTotal)} игроков для ${spyTotal} шпионов — или уменьшите число шпионов`;
+  }
   const category = game.categories[randomInt(game.categories.length)];
   const pool = CATEGORIES[category].words;
   const word = pool[randomInt(pool.length)];
   if (!await transition(game, { status: 'words', round: 1, category, word, phaseEndsAt: await now() + WORDS_SEC })) return null;
 
-  const spyIds = shuffle(list).slice(0, spyCount(list.length)).map((p) => p.id);
+  const spyIds = shuffle(list).slice(0, spyTotal).map((p) => p.id);
   await db.update(players).set({ isSpy: true }).where(inArray(players.id, spyIds));
 
   await tryEdit(game.chatId, game.panelMessageId,
